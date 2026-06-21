@@ -242,8 +242,14 @@ class ScanScreen(Screen):
         thread = threading.Thread(target=self._run_scan, daemon=True)
         thread.start()
 
+    def _is_main_thread(self):
+        return threading.get_ident() == self.app._thread_id
+
     def log_msg(self, msg):
-        self.app.call_from_thread(self._append_log, msg)
+        if self._is_main_thread():
+            self._append_log(msg)
+        else:
+            self.app.call_from_thread(self._append_log, msg)
 
     def _append_log(self, msg):
         try:
@@ -252,7 +258,10 @@ class ScanScreen(Screen):
             pass
 
     def set_module_status(self, key, status, count=None):
-        self.app.call_from_thread(self._update_module_label, key, status, count)
+        if self._is_main_thread():
+            self._update_module_label(key, status, count)
+        else:
+            self.app.call_from_thread(self._update_module_label, key, status, count)
 
     def _update_module_label(self, key, status, count):
         try:
@@ -270,7 +279,10 @@ class ScanScreen(Screen):
             pass
 
     def update_counters(self):
-        self.app.call_from_thread(self._refresh_counters)
+        if self._is_main_thread():
+            self._refresh_counters()
+        else:
+            self.app.call_from_thread(self._refresh_counters)
 
     def _refresh_counters(self):
         try:
