@@ -1,0 +1,9 @@
+requests
+beautifulsoup4
+dnspython
+rich
+jinja2
+textual
+playwright
+weasyprint
+urllib3

@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WebReaper Report — {{ target }}</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#0a0e1a; color:#c9d1d9; font-family:'Segoe UI',monospace; }
+header { background:linear-gradient(135deg,#0d1117,#1a0a0a); padding:30px 40px; border-bottom:3px solid #ff3333; }
+header h1 { font-size:2rem; color:#ff3333; letter-spacing:3px; }
+header p { color:#8b949e; margin-top:6px; font-size:0.9rem; }
+.skull { font-size:2.5rem; margin-right:12px; vertical-align:middle; }
+.container { max-width:1200px; margin:0 auto; padding:30px 20px; }
+
+/* Risk score */
+.risk-banner { background:linear-gradient(135deg,#1a0a0a,#0d1117); border:2px solid; border-radius:12px; padding:24px 32px; margin-bottom:28px; display:flex; align-items:center; gap:32px; }
+.risk-score { font-size:3.5rem; font-weight:900; line-height:1; }
+.risk-label { font-size:1rem; color:#8b949e; text-transform:uppercase; letter-spacing:2px; }
+.risk-critical { border-color:#ff3333; }
+.risk-critical .risk-score { color:#ff3333; }
+.risk-high { border-color:#ff6b00; }
+.risk-high .risk-score { color:#ff6b00; }
+.risk-medium { border-color:#ffaa00; }
+.risk-medium .risk-score { color:#ffaa00; }
+.risk-low { border-color:#00aaff; }
+.risk-low .risk-score { color:#00aaff; }
+
+/* Severity cards */
+.summary-grid { display:grid; grid-template-columns:repeat(5,1fr); gap:14px; margin-bottom:28px; }
+.stat-card { background:#0d1117; border:1px solid #21262d; border-radius:8px; padding:16px; text-align:center; }
+.stat-card .num { font-size:2.2rem; font-weight:900; }
+.stat-card .lbl { font-size:0.7rem; color:#8b949e; text-transform:uppercase; letter-spacing:1px; margin-top:4px; }
+.c-critical { color:#ff3333; }
+.c-high { color:#ff6b00; }
+.c-medium { color:#ffaa00; }
+.c-low { color:#00aaff; }
+.c-info { color:#8b949e; }
+
+/* Section */
+.section { background:#0d1117; border:1px solid #21262d; border-radius:8px; margin-bottom:24px; overflow:hidden; }
+.section-header { background:#161b22; padding:14px 20px; border-bottom:1px solid #21262d; display:flex; align-items:center; gap:10px; }
+.section-header h2 { font-size:0.9rem; color:#e6edf3; letter-spacing:1px; text-transform:uppercase; }
+.section-body { padding:0; }
+
+/* Findings table */
+table { width:100%; border-collapse:collapse; font-size:0.85rem; }
+th { background:#0a0e1a; color:#8b949e; text-align:left; padding:10px 14px; border-bottom:1px solid #21262d; font-size:0.75rem; letter-spacing:1px; text-transform:uppercase; }
+td { padding:12px 14px; border-bottom:1px solid #161b22; vertical-align:top; }
+tr:last-child td { border-bottom:none; }
+tr:hover td { background:#161b22; }
+
+/* Severity tags */
+.tag { display:inline-block; padding:3px 10px; border-radius:4px; font-size:0.72rem; font-weight:700; letter-spacing:1px; }
+.tag-CRITICAL { background:#ff333322; color:#ff3333; border:1px solid #ff3333; }
+.tag-HIGH { background:#ff6b0022; color:#ff6b00; border:1px solid #ff6b00; }
+.tag-MEDIUM { background:#ffaa0022; color:#ffaa00; border:1px solid #ffaa00; }
+.tag-LOW { background:#00aaff22; color:#00aaff; border:1px solid #00aaff; }
+.tag-INFO { background:#8b949e22; color:#8b949e; border:1px solid #8b949e; }
+
+/* Fix block */
+.fix-block { background:#0a0e1a; border-left:3px solid #00ff88; padding:12px 16px; margin-top:8px; border-radius:0 6px 6px 0; }
+.fix-title { color:#00ff88; font-size:0.75rem; font-weight:700; letter-spacing:1px; text-transform:uppercase; margin-bottom:6px; }
+.fix-text { color:#c9d1d9; font-size:0.82rem; margin-bottom:8px; }
+pre { background:#161b22; border:1px solid #30363d; border-radius:6px; padding:12px; overflow-x:auto; font-size:0.78rem; color:#a5d6ff; margin-top:8px; white-space:pre-wrap; word-break:break-word; }
+.evidence { color:#8b949e; font-size:0.8rem; font-family:monospace; background:#161b22; padding:4px 8px; border-radius:4px; display:inline-block; margin-top:4px; word-break:break-all; }
+
+/* Diff section */
+.diff-new { border-left:3px solid #ff3333; padding-left:8px; }
+.diff-fixed { border-left:3px solid #00ff88; padding-left:8px; }
+.diff-persist { border-left:3px solid #ffaa00; padding-left:8px; }
+
+/* Clickjacking PoC */
+.poc-frame { width:100%; height:300px; border:none; background:#161b22; border-radius:6px; }
+.poc-wrapper { position:relative; display:inline-block; }
+.poc-overlay { position:absolute; top:0; left:0; width:100%; height:100%; background:rgba(255,0,0,0.15); pointer-events:none; border-radius:6px; }
+
+/* Module badge */
+.module-badge { display:inline-block; background:#1f2937; color:#8b949e; padding:2px 8px; border-radius:4px; font-size:0.7rem; margin-left:6px; }
+
+footer { text-align:center; color:#8b949e; font-size:0.78rem; padding:30px; border-top:1px solid #21262d; margin-top:20px; }
+.url-cell { max-width:280px; word-break:break-all; font-size:0.8rem; }
+.name-cell { font-weight:600; color:#e6edf3; }
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="skull">💀</span>WEBREAPER — VULNERABILITY REPORT</h1>
+  <p>Target: <strong style="color:#e6edf3">{{ target }}</strong> &nbsp;|&nbsp; Scan Date: {{ generated_at }} &nbsp;|&nbsp; Profile: {{ profile }} &nbsp;|&nbsp; Pages Crawled: {{ pages_crawled }}</p>
+</header>
+
+<div class="container">
+
+  <!-- Risk Score -->
+  <div class="risk-banner risk-{{ overall_risk | lower }}">
+    <div>
+      <div class="risk-score">{{ risk_score }}<span style="font-size:1.5rem">/100</span></div>
+      <div class="risk-label">Risk Score</div>
+    </div>
+    <div style="flex:1">
+      <div style="font-size:1.3rem; font-weight:700; color:#e6edf3">Overall Risk: <span class="c-{{ overall_risk | lower }}">{{ overall_risk }}</span></div>
+      <div style="color:#8b949e; margin-top:6px; font-size:0.88rem">{{ total_findings }} vulnerabilities found across {{ pages_crawled }} pages. {{ critical_count }} critical issues require immediate attention.</div>
+    </div>
+  </div>
+
+  <!-- Summary Cards -->
+  <div class="summary-grid">
+    <div class="stat-card"><div class="num c-critical">{{ critical_count }}</div><div class="lbl">Critical</div></div>
+    <div class="stat-card"><div class="num c-high">{{ high_count }}</div><div class="lbl">High</div></div>
+    <div class="stat-card"><div class="num c-medium">{{ medium_count }}</div><div class="lbl">Medium</div></div>
+    <div class="stat-card"><div class="num c-low">{{ low_count }}</div><div class="lbl">Low</div></div>
+    <div class="stat-card"><div class="num c-info">{{ info_count }}</div><div class="lbl">Info</div></div>
+  </div>
+
+  {% if diff and (diff.new or diff.fixed) %}
+  <!-- Scan Diff -->
+  <div class="section">
+    <div class="section-header"><span>🔄</span><h2>Scan Comparison (vs {{ diff.previous_date }})</h2></div>
+    <div class="section-body" style="padding:16px 20px">
+      <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:16px">
+        <div style="text-align:center">
+          <div style="font-size:2rem; font-weight:900; color:#ff3333">{{ diff.new | length }}</div>
+          <div style="color:#8b949e; font-size:0.8rem; text-transform:uppercase">New Issues</div>
+        </div>
+        <div style="text-align:center">
+          <div style="font-size:2rem; font-weight:900; color:#00ff88">{{ diff.fixed | length }}</div>
+          <div style="color:#8b949e; font-size:0.8rem; text-transform:uppercase">Fixed</div>
+        </div>
+        <div style="text-align:center">
+          <div style="font-size:2rem; font-weight:900; color:#ffaa00">{{ diff.persistent | length }}</div>
+          <div style="color:#8b949e; font-size:0.8rem; text-transform:uppercase">Still Present</div>
+        </div>
+      </div>
+      {% if diff.fixed %}
+      <div style="margin-top:16px; padding:12px; background:#00ff8811; border:1px solid #00ff8844; border-radius:6px">
+        <div style="color:#00ff88; font-weight:700; font-size:0.8rem; margin-bottom:8px">FIXED SINCE LAST SCAN:</div>
+        {% for f in diff.fixed %}
+        <div style="color:#8b949e; font-size:0.82rem; padding:3px 0">✓ {{ f.name }} — {{ f.url }}</div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- All Findings -->
+  <div class="section">
+    <div class="section-header"><span>🔍</span><h2>All Findings ({{ total_findings }})</h2></div>
+    <div class="section-body">
+      {% if findings %}
+      <table>
+        <thead>
+          <tr>
+            <th style="width:30px">#</th>
+            <th style="width:100px">Severity</th>
+            <th>Vulnerability</th>
+            <th>URL / Location</th>
+            <th>Module</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for f in findings %}
+          <tr>
+            <td style="color:#8b949e">{{ loop.index }}</td>
+            <td><span class="tag tag-{{ f.severity }}">{{ f.severity }}</span></td>
+            <td>
+              <div class="name-cell">{{ f.name }}</div>
+              <div class="evidence">{{ f.evidence | truncate(120) }}</div>
+              <div class="fix-block">
+                <div class="fix-title">How to Fix</div>
+                <div class="fix-text">{{ f.recommendation.fix }}</div>
+                <pre>{{ f.recommendation.snippet }}</pre>
+              </div>
+            </td>
+            <td class="url-cell">{{ f.url }}</td>
+            <td><span class="module-badge">{{ f.module }}</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div style="padding:24px; color:#8b949e; text-align:center">No vulnerabilities found.</div>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if clickjacking_url %}
+  <!-- Clickjacking PoC -->
+  <div class="section">
+    <div class="section-header"><span>🖱️</span><h2>Clickjacking Proof of Concept</h2></div>
+    <div class="section-body" style="padding:20px">
+      <p style="color:#ff6b00; margin-bottom:12px; font-size:0.88rem">The following page can be embedded in an iframe — clickjacking is possible:</p>
+      <div class="poc-wrapper">
+        <iframe class="poc-frame" src="{{ clickjacking_url }}" sandbox="allow-same-origin allow-scripts"></iframe>
+        <div class="poc-overlay"></div>
+      </div>
+      <p style="color:#8b949e; font-size:0.8rem; margin-top:8px">Red overlay simulates a transparent attacker layer placed over the legitimate page.</p>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Crawl Summary -->
+  <div class="section">
+    <div class="section-header"><span>🕷️</span><h2>Crawl Summary</h2></div>
+    <div class="section-body" style="padding:16px 20px">
+      <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:16px; text-align:center">
+        <div><div style="font-size:1.8rem; font-weight:900; color:#00ff88">{{ pages_crawled }}</div><div style="color:#8b949e; font-size:0.75rem; text-transform:uppercase">Pages</div></div>
+        <div><div style="font-size:1.8rem; font-weight:900; color:#00aaff">{{ forms_found }}</div><div style="color:#8b949e; font-size:0.75rem; text-transform:uppercase">Forms</div></div>
+        <div><div style="font-size:1.8rem; font-weight:900; color:#ffaa00">{{ js_files }}</div><div style="color:#8b949e; font-size:0.75rem; text-transform:uppercase">JS Files</div></div>
+        <div><div style="font-size:1.8rem; font-weight:900; color:#ff6b00">{{ scan_duration }}</div><div style="color:#8b949e; font-size:0.75rem; text-transform:uppercase">Seconds</div></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+<footer>Generated by WebReaper v1.0 &nbsp;|&nbsp; For authorized security testing only &nbsp;|&nbsp; {{ generated_at }}</footer>
+</body>
+</html>
