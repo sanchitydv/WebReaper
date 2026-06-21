@@ -206,7 +206,7 @@ class ScanScreen(Screen):
                     *[Label(f"○  {label}", id=f"status-{key}", classes="mod-row mod-pending") for key, label in MODULES],
                     id="modules-status",
                 ),
-                Log(id="live-log", highlight=True, markup=True),
+                Log(id="live-log", highlight=True),
             ),
             Horizontal(
                 Label("CRITICAL: 0", id="cnt-critical", classes="counter-label c-crit"),
