@@ -47,10 +47,12 @@ MODULES = [
 CSS = """
 Screen { background: #0a0e1a; }
 
-#banner { background: #0d1117; border: tall #ff3333; padding: 1 2; margin: 1 2; }
-#banner Static { color: $text; }
+#banner { background: #0d1117; border: tall #ff3333; padding: 0 2; height: auto; }
 
-#home-container { margin: 0 2; }
+#home-scroll { height: 1fr; }
+#home-container { margin: 0 2; height: auto; }
+
+#start-btn { background: #ff3333; color: white; border: tall #ff6666; width: 100%; height: 3; dock: bottom; }
 
 .section-title { background: #161b22; color: #ff3333; padding: 0 1; margin-top: 1; }
 
@@ -70,7 +72,6 @@ Checkbox:focus { background: #161b22; }
 
 #email-input { margin-bottom: 1; }
 
-#start-btn { background: #ff3333; color: white; border: tall #ff6666; width: 100%; height: 3; margin-bottom: 1; }
 #start-btn:hover { background: #cc0000; }
 #start-btn:focus { background: #cc0000; }
 
@@ -110,8 +111,8 @@ DataTable { border: tall #21262d; background: #0d1117; }
 class HomeScreen(Screen):
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
+        yield Static(BANNER, markup=True, id="banner")
         yield ScrollableContainer(
-            Static(BANNER, markup=True, id="banner"),
             Container(
                 Static("TARGET URL", classes="section-title"),
                 Input(placeholder="https://example.com", id="url-input"),
@@ -146,10 +147,11 @@ class HomeScreen(Screen):
                 Static("NOTIFICATION EMAIL (optional)", classes="section-title"),
                 Input(placeholder="your@email.com (leave blank to skip)", id="email-input"),
 
-                Button("💀  START SCAN", id="start-btn", variant="error"),
                 id="home-container",
             ),
+            id="home-scroll",
         )
+        yield Button("💀  START SCAN", id="start-btn", variant="error")
         yield Footer()
 
     def on_mount(self):
