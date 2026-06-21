@@ -62,7 +62,9 @@ Input:focus { border: tall #ff3333; }
 .profile-btn { background: #161b22; border: tall #30363d; color: #8b949e; margin: 0 1 0 0; min-width: 12; }
 .profile-btn.active { background: #ff333322; border: tall #ff3333; color: #ff3333; }
 
-#modules-grid { layout: grid; grid-size: 3; grid-gutter: 0; margin-bottom: 1; }
+#modules-grid { layout: vertical; height: auto; margin-bottom: 1; }
+.mod-check-row { layout: horizontal; height: 3; }
+.mod-check-row Checkbox { width: 1fr; background: #0d1117; color: #c9d1d9; height: 3; }
 Checkbox { background: #0d1117; color: #c9d1d9; margin: 0; padding: 0 1; }
 Checkbox:focus { background: #161b22; }
 
@@ -124,7 +126,20 @@ class HomeScreen(Screen):
 
                 Static("MODULES", classes="section-title"),
                 Container(
-                    *[Checkbox(label, value=True, id=f"mod-{key}") for key, label in MODULES],
+                    *[
+                        Horizontal(
+                            Checkbox(MODULES[i][1],   value=True, id=f"mod-{MODULES[i][0]}"),
+                            Checkbox(MODULES[i+1][1], value=True, id=f"mod-{MODULES[i+1][0]}"),
+                            Checkbox(MODULES[i+2][1], value=True, id=f"mod-{MODULES[i+2][0]}"),
+                            classes="mod-check-row",
+                        )
+                        for i in range(0, len(MODULES) - len(MODULES) % 3, 3)
+                    ] + (
+                        [Horizontal(
+                            *[Checkbox(MODULES[j][1], value=True, id=f"mod-{MODULES[j][0]}") for j in range(-(len(MODULES) % 3), 0)],
+                            classes="mod-check-row",
+                        )] if len(MODULES) % 3 != 0 else []
+                    ),
                     id="modules-grid",
                 ),
 
