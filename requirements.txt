@@ -3,7 +3,9 @@ beautifulsoup4
 dnspython
 rich
 jinja2
-textual
+customtkinter
+pillow
 playwright
 weasyprint
 urllib3
+pyinstaller
