@@ -220,12 +220,12 @@ class HomeFrame(ctk.CTkFrame):
             ).grid(row=0, column=1, sticky="w", pady=(10, 0), padx=(0, 12))
             ctk.CTkLabel(pf, text=f"{eta}  ·  {desc}",
                 font=ctk.CTkFont(size=10),
-                text_color="#ffffff99" if active else TXT2,
+                text_color="#aaaaaa" if active else TXT2,
                 fg_color="transparent", anchor="w",
             ).grid(row=1, column=1, sticky="w", pady=(0, 10), padx=(0, 12))
 
             ctk.CTkLabel(pf, text=eta, font=ctk.CTkFont(size=9, weight="bold"),
-                text_color="#ffffff66" if active else TXT3,
+                text_color="#777777" if active else TXT3,
                 fg_color="transparent",
             ).grid(row=0, column=2, rowspan=2, padx=(0, 14))
 
@@ -348,7 +348,7 @@ class HomeFrame(ctk.CTkFrame):
                         elif w.cget("font").cget("weight") == "bold":
                             w.configure(text_color="white")
                         else:
-                            w.configure(text_color="#ffffff99" if active else TXT2)
+                            w.configure(text_color="#aaaaaa" if active else TXT2)
                     except Exception:
                         pass
         for key, var in self.module_vars.items():
@@ -1072,7 +1072,7 @@ class DashboardFrame(ctk.CTkFrame):
         ).pack(side="left", padx=8)
         ctk.CTkLabel(banner, text=f.get("module", ""),
             font=ctk.CTkFont(size=10),
-            text_color="#ffffffcc", fg_color="transparent",
+            text_color="#cccccc", fg_color="transparent",
         ).pack(side="right", padx=12)
 
         def field(label, value, val_color=TXT):
