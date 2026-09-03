@@ -170,5 +170,13 @@ class WebReaper:
             scan_duration=duration,
         )
 
-        self._notify("scan_complete", {"report_path": report_path, "findings": self.findings, "duration": duration})
+        self._notify("scan_complete", {
+            "report_path": report_path,
+            "findings": self.findings,
+            "duration": duration,
+            "pages_crawled": len(self.crawl_data.get("pages", [])),
+            "forms_found": len(self.crawl_data.get("forms", [])),
+            "js_files": len(self.crawl_data.get("js_files", [])),
+            "modules_run": len(self.enabled),
+        })
         return report_path, self.findings

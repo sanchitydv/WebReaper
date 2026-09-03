@@ -1,9 +1,8 @@
 import os
 import sys
 import threading
-import subprocess
 import queue
-import webbrowser
+import math
 from datetime import datetime
 
 import customtkinter as ctk
@@ -346,8 +345,7 @@ class ScanFrame(ctk.CTkFrame):
         elif event == "scan_complete":
             self._log("─" * 60)
             self._log(f"✓ SCAN COMPLETE in {int(data['duration'])}s", "ok")
-            self._log(f"Report: {os.path.abspath(data['report_path'])}", "ok")
-            self.after(800, lambda: self.on_complete(self.target, data["findings"], data["report_path"]))
+            self.after(800, lambda d=data: self.on_complete(self.target, d))
 
     def _scan_callback(self, event, data):
         self.q.put((event, data))
@@ -375,54 +373,278 @@ class ScanFrame(ctk.CTkFrame):
             self.q.put(("log_error", traceback.format_exc()))
 
 
-# ── Results screen ─────────────────────────────────────────────────────────────
+# ── Dashboard ──────────────────────────────────────────────────────────────────
 
-class ResultsFrame(ctk.CTkFrame):
-    def __init__(self, master, target, findings, report_path, on_new_scan):
+SEV_COLORS = {
+    "CRITICAL": "#ff3333",
+    "HIGH":     "#ff6b00",
+    "MEDIUM":   "#ffaa00",
+    "LOW":      "#00aaff",
+    "INFO":     "#8b949e",
+}
+SEV_ORDER = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3, "INFO": 4}
+
+
+def _risk_score(findings):
+    weights = {"CRITICAL": 25, "HIGH": 15, "MEDIUM": 8, "LOW": 3, "INFO": 0}
+    return min(sum(weights.get(f.get("severity", "INFO"), 0) for f in findings), 100)
+
+
+def _risk_label(score):
+    if score >= 75: return "CRITICAL", RED
+    if score >= 50: return "HIGH", ORANGE
+    if score >= 25: return "MEDIUM", YELLOW
+    if score > 0:   return "LOW", BLUE
+    return "SAFE", GREEN
+
+
+class DonutChart(tk.Canvas):
+    """Draws a severity donut chart."""
+    def __init__(self, parent, counts, size=180, **kw):
+        super().__init__(parent, width=size, height=size,
+                         bg=BG_PANEL, highlightthickness=0, **kw)
+        self._draw(counts, size)
+
+    def _draw(self, counts, size):
+        total = sum(counts.values()) or 1
+        cx, cy, r_out, r_in = size // 2, size // 2, size // 2 - 6, size // 2 - 38
+        sevs = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]
+        start = -90.0
+        for sev in sevs:
+            n = counts.get(sev, 0)
+            if n == 0:
+                continue
+            extent = 360.0 * n / total
+            x0, y0 = cx - r_out, cy - r_out
+            x1, y1 = cx + r_out, cy + r_out
+            self.create_arc(x0, y0, x1, y1, start=start, extent=extent,
+                            fill=SEV_COLORS[sev], outline=BG_MID, width=2, style="pieslice")
+            start += extent
+        # Hole
+        self.create_oval(cx - r_in, cy - r_in, cx + r_in, cy + r_in,
+                         fill=BG_PANEL, outline=BG_PANEL)
+        # Center text
+        total_issues = sum(counts.get(s, 0) for s in ("CRITICAL", "HIGH", "MEDIUM", "LOW"))
+        self.create_text(cx, cy - 10, text=str(total_issues),
+                         fill=TXT_MAIN, font=("Courier", 22, "bold"))
+        self.create_text(cx, cy + 14, text="findings",
+                         fill=TXT_DIM, font=("Courier", 10))
+
+
+class DashboardFrame(ctk.CTkFrame):
+    def __init__(self, master, target, scan_data, on_new_scan):
         super().__init__(master, fg_color=BG_DARK)
-        self.target = target
-        self.findings = findings
-        self.report_path = report_path
+        self.target      = target
+        self.findings    = scan_data.get("findings", [])
+        self.duration    = scan_data.get("duration", 0)
+        self.pages       = scan_data.get("pages_crawled", 0)
+        self.forms       = scan_data.get("forms_found", 0)
+        self.js_files    = scan_data.get("js_files", 0)
+        self.modules_run = scan_data.get("modules_run", 0)
         self.on_new_scan = on_new_scan
+        self._sorted_findings = sorted(
+            self.findings, key=lambda x: SEV_ORDER.get(x.get("severity", "INFO"), 4)
+        )
+        self._active_filter = "ALL"
         self._build()
+
+    # ── layout ──────────────────────────────────────────────────────────────────
 
     def _build(self):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(2, weight=1)
 
-        counts = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "INFO": 0}
+        counts = {s: 0 for s in ("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO")}
         for f in self.findings:
-            sev = f.get("severity", "INFO")
-            counts[sev] = counts.get(sev, 0) + 1
+            counts[f.get("severity", "INFO")] = counts.get(f.get("severity", "INFO"), 0) + 1
 
-        # Header
-        hdr = ctk.CTkFrame(self, fg_color=BG_PANEL, corner_radius=0, height=52)
+        score = _risk_score(self.findings)
+        risk_label, risk_color = _risk_label(score)
+
+        self._build_header(score, risk_label, risk_color)
+        self._build_stat_cards(counts, score, risk_label, risk_color)
+        self._build_main(counts)
+
+    def _build_header(self, score, risk_label, risk_color):
+        hdr = ctk.CTkFrame(self, fg_color=BG_PANEL, corner_radius=0, height=48)
         hdr.grid(row=0, column=0, sticky="ew")
         hdr.grid_propagate(False)
+        hdr.grid_columnconfigure(1, weight=1)
+
         ctk.CTkLabel(
-            hdr,
-            text=(f"✓  Scan Complete  —  {len(self.findings)} findings  |  "
-                  f"Critical: {counts['CRITICAL']}   High: {counts['HIGH']}   "
-                  f"Medium: {counts['MEDIUM']}   Low: {counts['LOW']}"),
-            text_color=GREEN, font=ctk.CTkFont(size=12, weight="bold"),
-            fg_color="transparent",
-        ).place(relx=0.5, rely=0.5, anchor="center")
+            hdr, text="💀  WebReaper Dashboard",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            text_color=RED, fg_color="transparent",
+        ).grid(row=0, column=0, padx=16, pady=8, sticky="w")
 
-        # Action buttons
-        arow = ctk.CTkFrame(self, fg_color=BG_DARK)
-        arow.grid(row=1, column=0, sticky="ew", padx=12, pady=8)
-        for text, cmd in [
-            ("📄  Open Report", self._open_report),
-            ("📤  Export PDF",  self._export_pdf),
-            ("🔄  New Scan",    self.on_new_scan),
-        ]:
-            ctk.CTkButton(
-                arow, text=text, fg_color=BG_CARD, hover_color=RED,
-                text_color=TXT_MAIN, font=ctk.CTkFont(size=12),
-                height=36, corner_radius=6, command=cmd,
-            ).pack(side="left", padx=(0, 8))
+        ctk.CTkLabel(
+            hdr, text=f"Target: {self.target}  |  {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+            font=ctk.CTkFont(size=11), text_color=TXT_DIM, fg_color="transparent",
+        ).grid(row=0, column=1, padx=8, pady=8, sticky="w")
 
-        # Findings table using ttk.Treeview (native, fast)
+        ctk.CTkButton(
+            hdr, text="🔄  New Scan", fg_color=BG_CARD, hover_color=RED,
+            text_color=TXT_MAIN, font=ctk.CTkFont(size=11),
+            height=30, width=110, corner_radius=6, command=self.on_new_scan,
+        ).grid(row=0, column=2, padx=16, pady=8, sticky="e")
+
+    def _build_stat_cards(self, counts, score, risk_label, risk_color):
+        strip = ctk.CTkFrame(self, fg_color=BG_DARK)
+        strip.grid(row=1, column=0, sticky="ew", padx=12, pady=(8, 0))
+        strip.grid_columnconfigure((0, 1, 2, 3, 4, 5), weight=1)
+
+        # Risk score card
+        self._stat_card(strip, col=0,
+                        top=f"{score}/100", bottom="RISK SCORE",
+                        top_color=risk_color, badge=risk_label, badge_color=risk_color)
+
+        # Severity count cards
+        for col, sev in enumerate(("CRITICAL", "HIGH", "MEDIUM", "LOW"), start=1):
+            self._stat_card(strip, col=col,
+                            top=str(counts[sev]), bottom=sev,
+                            top_color=SEV_COLORS[sev])
+
+        # Scan stats card
+        stats_card = ctk.CTkFrame(strip, fg_color=BG_PANEL, corner_radius=10)
+        stats_card.grid(row=0, column=5, sticky="nsew", padx=(6, 0), pady=0)
+        for i, (label, val) in enumerate([
+            ("Pages crawled", self.pages),
+            ("Forms found",   self.forms),
+            ("JS files",      self.js_files),
+            ("Duration",      f"{int(self.duration)}s"),
+            ("Modules run",   self.modules_run),
+        ]):
+            ctk.CTkLabel(stats_card,
+                text=f"{label}:", font=ctk.CTkFont(size=10),
+                text_color=TXT_DIM, fg_color="transparent", anchor="w",
+            ).grid(row=i, column=0, padx=(12, 4), pady=1, sticky="w")
+            ctk.CTkLabel(stats_card,
+                text=str(val), font=ctk.CTkFont(size=10, weight="bold"),
+                text_color=TXT_MAIN, fg_color="transparent", anchor="e",
+            ).grid(row=i, column=1, padx=(0, 12), pady=1, sticky="e")
+
+    def _stat_card(self, parent, col, top, bottom, top_color, badge=None, badge_color=None):
+        card = ctk.CTkFrame(parent, fg_color=BG_PANEL, corner_radius=10)
+        card.grid(row=0, column=col, sticky="nsew", padx=(0 if col == 0 else 6, 0), pady=0)
+        ctk.CTkLabel(card, text=top,
+            font=ctk.CTkFont(size=28, weight="bold"),
+            text_color=top_color, fg_color="transparent",
+        ).pack(pady=(14, 0))
+        ctk.CTkLabel(card, text=bottom,
+            font=ctk.CTkFont(size=10), text_color=TXT_DIM, fg_color="transparent",
+        ).pack()
+        if badge:
+            ctk.CTkLabel(card, text=badge,
+                font=ctk.CTkFont(size=9, weight="bold"),
+                text_color=badge_color, fg_color="transparent",
+            ).pack(pady=(0, 10))
+        else:
+            card.pack_configure() if False else None
+            ctk.CTkFrame(card, height=10, fg_color="transparent").pack()
+
+    # ── main area ───────────────────────────────────────────────────────────────
+
+    def _build_main(self, counts):
+        main = ctk.CTkFrame(self, fg_color=BG_DARK)
+        main.grid(row=2, column=0, sticky="nsew", padx=12, pady=8)
+        main.grid_columnconfigure(0, weight=0)
+        main.grid_columnconfigure(1, weight=1)
+        main.grid_rowconfigure(0, weight=1)
+
+        # Left sidebar: donut + module breakdown
+        sidebar = ctk.CTkFrame(main, fg_color=BG_PANEL, corner_radius=10, width=220)
+        sidebar.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        sidebar.grid_propagate(False)
+        self._build_sidebar(sidebar, counts)
+
+        # Right: filter bar + table + detail panel
+        right = ctk.CTkFrame(main, fg_color=BG_DARK)
+        right.grid(row=0, column=1, sticky="nsew")
+        right.grid_columnconfigure(0, weight=1)
+        right.grid_rowconfigure(1, weight=1)
+
+        self._build_filter_bar(right)
+        self._build_table_area(right)
+
+    def _build_sidebar(self, parent, counts):
+        ctk.CTkLabel(parent, text="SEVERITY BREAKDOWN",
+            font=ctk.CTkFont(size=9, weight="bold"),
+            text_color=RED, fg_color="transparent",
+        ).pack(pady=(14, 4))
+
+        DonutChart(parent, counts, size=190).pack(pady=(0, 8))
+
+        # Legend
+        for sev in ("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"):
+            n = counts.get(sev, 0)
+            row = ctk.CTkFrame(parent, fg_color="transparent")
+            row.pack(fill="x", padx=16, pady=2)
+            ctk.CTkFrame(row, width=10, height=10, corner_radius=2,
+                         fg_color=SEV_COLORS[sev]).pack(side="left", padx=(0, 6))
+            ctk.CTkLabel(row, text=sev, font=ctk.CTkFont(size=10),
+                         text_color=TXT_DIM, fg_color="transparent").pack(side="left")
+            ctk.CTkLabel(row, text=str(n), font=ctk.CTkFont(size=10, weight="bold"),
+                         text_color=SEV_COLORS[sev], fg_color="transparent").pack(side="right")
+
+        ctk.CTkFrame(parent, height=1, fg_color=BG_CARD).pack(fill="x", padx=12, pady=10)
+
+        # Module hit breakdown
+        ctk.CTkLabel(parent, text="BY MODULE",
+            font=ctk.CTkFont(size=9, weight="bold"),
+            text_color=RED, fg_color="transparent",
+        ).pack(pady=(0, 6))
+
+        module_counts = {}
+        for f in self.findings:
+            m = f.get("module", "Unknown")
+            module_counts[m] = module_counts.get(m, 0) + 1
+
+        scroll_mods = ctk.CTkScrollableFrame(parent, fg_color="transparent", height=160)
+        scroll_mods.pack(fill="x", padx=8, pady=(0, 12))
+        for mod, n in sorted(module_counts.items(), key=lambda x: -x[1]):
+            row = ctk.CTkFrame(scroll_mods, fg_color="transparent")
+            row.pack(fill="x", pady=1)
+            ctk.CTkLabel(row, text=mod[:22], font=ctk.CTkFont(size=9),
+                         text_color=TXT_DIM, fg_color="transparent", anchor="w").pack(side="left")
+            ctk.CTkLabel(row, text=str(n), font=ctk.CTkFont(size=9, weight="bold"),
+                         text_color=TXT_MAIN, fg_color="transparent").pack(side="right")
+
+    def _build_filter_bar(self, parent):
+        bar = ctk.CTkFrame(parent, fg_color=BG_DARK)
+        bar.grid(row=0, column=0, sticky="ew", pady=(0, 6))
+
+        ctk.CTkLabel(bar, text="FINDINGS",
+            font=ctk.CTkFont(size=10, weight="bold"),
+            text_color=RED, fg_color="transparent",
+        ).pack(side="left", padx=(0, 12))
+
+        self._filter_btns = {}
+        for label in ("ALL", "CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"):
+            btn = ctk.CTkButton(
+                bar, text=label, width=70, height=26,
+                font=ctk.CTkFont(size=10),
+                fg_color=RED if label == "ALL" else BG_CARD,
+                hover_color=RED_DIM, text_color=TXT_MAIN,
+                corner_radius=6,
+                command=lambda l=label: self._apply_filter(l),
+            )
+            btn.pack(side="left", padx=(0, 4))
+            self._filter_btns[label] = btn
+
+    def _apply_filter(self, label):
+        self._active_filter = label
+        for l, btn in self._filter_btns.items():
+            btn.configure(fg_color=RED if l == label else BG_CARD)
+        self._populate_table()
+
+    def _build_table_area(self, parent):
+        area = ctk.CTkFrame(parent, fg_color=BG_DARK)
+        area.grid(row=1, column=0, sticky="nsew")
+        area.grid_columnconfigure(0, weight=3)
+        area.grid_columnconfigure(1, weight=2)
+        area.grid_rowconfigure(0, weight=1)
+
+        # Table
         style = ttk.Style()
         style.theme_use("default")
         style.configure("Reaper.Treeview",
@@ -430,61 +652,116 @@ class ResultsFrame(ctk.CTkFrame):
             borderwidth=0, font=("Courier", 11), rowheight=26,
         )
         style.configure("Reaper.Treeview.Heading",
-            background=BG_PANEL, foreground=RED, font=("Courier", 11, "bold"),
-            relief="flat",
+            background=BG_PANEL, foreground=RED, font=("Courier", 10, "bold"), relief="flat",
         )
         style.map("Reaper.Treeview", background=[("selected", BG_CARD)])
 
-        tframe = ctk.CTkFrame(self, fg_color=BG_MID, corner_radius=8)
-        tframe.grid(row=2, column=0, sticky="nsew", padx=12, pady=(0, 12))
+        tframe = ctk.CTkFrame(area, fg_color=BG_MID, corner_radius=8)
+        tframe.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
         tframe.grid_rowconfigure(0, weight=1)
         tframe.grid_columnconfigure(0, weight=1)
 
-        cols = ("#", "Severity", "Vulnerability", "URL", "Module")
+        cols = ("#", "Sev", "Vulnerability", "URL", "Module")
         self.tree = ttk.Treeview(tframe, columns=cols, show="headings", style="Reaper.Treeview")
-        self.tree.grid(row=0, column=0, sticky="nsew")
-
-        widths = [40, 90, 260, 300, 130]
-        for col, w in zip(cols, widths):
-            self.tree.heading(col, text=col)
+        for col, w in zip(cols, [32, 80, 220, 200, 110]):
+            self.tree.heading(col, text=col,
+                command=lambda c=col: self._sort_by(c))
             self.tree.column(col, width=w, minwidth=w, anchor="w")
+        self.tree.grid(row=0, column=0, sticky="nsew")
 
         vsb = ctk.CTkScrollbar(tframe, command=self.tree.yview)
         vsb.grid(row=0, column=1, sticky="ns")
         self.tree.configure(yscrollcommand=vsb.set)
+        for sev, color in SEV_COLORS.items():
+            self.tree.tag_configure(sev, foreground=color)
 
-        self.tree.tag_configure("CRITICAL", foreground="#ff3333")
-        self.tree.tag_configure("HIGH",     foreground="#ff6b00")
-        self.tree.tag_configure("MEDIUM",   foreground="#ffaa00")
-        self.tree.tag_configure("LOW",      foreground="#00aaff")
-        self.tree.tag_configure("INFO",     foreground=TXT_DIM)
+        self.tree.bind("<<TreeviewSelect>>", self._on_select)
+        self._populate_table()
 
-        sev_order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3, "INFO": 4}
-        sorted_f = sorted(self.findings, key=lambda x: sev_order.get(x.get("severity", "INFO"), 4))
-        for i, f in enumerate(sorted_f, 1):
+        # Detail panel
+        self.detail = ctk.CTkScrollableFrame(area, fg_color=BG_PANEL, corner_radius=8)
+        self.detail.grid(row=0, column=1, sticky="nsew")
+        self.detail.grid_columnconfigure(0, weight=1)
+        self._detail_placeholder()
+
+    def _populate_table(self):
+        self.tree.delete(*self.tree.get_children())
+        filtered = (
+            self._sorted_findings if self._active_filter == "ALL"
+            else [f for f in self._sorted_findings if f.get("severity") == self._active_filter]
+        )
+        self._row_data = {}
+        for i, f in enumerate(filtered, 1):
             sev = f.get("severity", "INFO")
-            self.tree.insert("", "end", values=(
-                i, sev, f.get("name", "")[:60], f.get("url", "")[:60], f.get("module", "")
+            iid = self.tree.insert("", "end", values=(
+                i, sev, f.get("name", "")[:50], f.get("url", "")[:50], f.get("module", "")
             ), tags=(sev,))
+            self._row_data[iid] = f
 
-    def _open_report(self):
-        if self.report_path:
-            path = os.path.abspath(self.report_path)
-            webbrowser.open(f"file://{path}")
+    def _sort_by(self, col):
+        col_map = {"#": None, "Sev": "severity", "Vulnerability": "name",
+                   "URL": "url", "Module": "module"}
+        key = col_map.get(col)
+        if key == "severity":
+            self._sorted_findings.sort(key=lambda x: SEV_ORDER.get(x.get("severity", "INFO"), 4))
+        elif key:
+            self._sorted_findings.sort(key=lambda x: x.get(key, "").lower())
+        self._populate_table()
 
-    def _export_pdf(self):
-        if not self.report_path:
+    def _on_select(self, _event):
+        sel = self.tree.selection()
+        if not sel:
             return
-        messagebox.showinfo("Export PDF", "Generating PDF... this may take a moment.")
-        def _do():
-            from report.generator import export_pdf
-            pdf_path = export_pdf(self.report_path)
-            if pdf_path:
-                webbrowser.open(f"file://{os.path.abspath(pdf_path)}")
-                messagebox.showinfo("PDF Exported", f"Saved to:\n{os.path.abspath(pdf_path)}")
-            else:
-                messagebox.showwarning("PDF Failed", "PDF export failed.\nInstall Playwright: playwright install chromium")
-        threading.Thread(target=_do, daemon=True).start()
+        f = self._row_data.get(sel[0])
+        if f:
+            self._show_detail(f)
+
+    def _detail_placeholder(self):
+        for w in self.detail.winfo_children():
+            w.destroy()
+        ctk.CTkLabel(self.detail, text="← Click a finding\nto see details",
+            font=ctk.CTkFont(size=12), text_color=TXT_DIM,
+            fg_color="transparent", justify="center",
+        ).pack(expand=True, pady=60)
+
+    def _show_detail(self, f):
+        for w in self.detail.winfo_children():
+            w.destroy()
+
+        sev = f.get("severity", "INFO")
+        color = SEV_COLORS.get(sev, TXT_DIM)
+
+        # Severity badge
+        badge = ctk.CTkFrame(self.detail, fg_color=color, corner_radius=6, height=30)
+        badge.pack(fill="x", padx=12, pady=(12, 6))
+        badge.pack_propagate(False)
+        ctk.CTkLabel(badge, text=f"  {sev}  ", font=ctk.CTkFont(size=11, weight="bold"),
+                     text_color="white", fg_color="transparent").pack(side="left", padx=6)
+        ctk.CTkLabel(badge, text=f.get("module", ""),
+                     font=ctk.CTkFont(size=10), text_color="white",
+                     fg_color="transparent").pack(side="right", padx=8)
+
+        def field(label, value, value_color=TXT_MAIN):
+            ctk.CTkLabel(self.detail, text=label,
+                font=ctk.CTkFont(size=9, weight="bold"),
+                text_color=RED, fg_color="transparent", anchor="w",
+            ).pack(fill="x", padx=12, pady=(8, 1))
+            ctk.CTkLabel(self.detail, text=value or "—",
+                font=ctk.CTkFont(size=11), text_color=value_color,
+                fg_color=BG_CARD, corner_radius=4, anchor="w",
+                wraplength=300, justify="left",
+            ).pack(fill="x", padx=12, pady=(0, 2), ipady=4, ipadx=6)
+
+        field("VULNERABILITY", f.get("name", "—"))
+        field("URL", f.get("url", "—"), TXT_DIM)
+        field("PARAMETER", f.get("param", "—") if f.get("param") else "—", TXT_DIM)
+
+        desc = f.get("description") or f.get("detail") or f.get("evidence") or "No description available."
+        field("DESCRIPTION", str(desc)[:400])
+
+        rec = f.get("recommendation", "")
+        if rec:
+            field("RECOMMENDATION", str(rec)[:400], GREEN)
 
 
 # ── Main App Window ────────────────────────────────────────────────────────────
@@ -516,10 +793,10 @@ class WebReaperApp(ctk.CTk):
         self._swap(HomeFrame(self, on_start=self._start_scan))
 
     def _start_scan(self, url, enabled, profile, email):
-        self._swap(ScanFrame(self, url, enabled, profile, email, on_complete=self._show_results))
+        self._swap(ScanFrame(self, url, enabled, profile, email, on_complete=self._show_dashboard))
 
-    def _show_results(self, target, findings, report_path):
-        self._swap(ResultsFrame(self, target, findings, report_path, on_new_scan=self._show_home))
+    def _show_dashboard(self, target, scan_data):
+        self._swap(DashboardFrame(self, target, scan_data, on_new_scan=self._show_home))
 
     def _swap(self, frame):
         if self._current_frame:
